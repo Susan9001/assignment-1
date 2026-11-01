@@ -1,7 +1,7 @@
 from jinja2 import Template
 
 CHESS_AGENT_SYSTEM_PROMPT_TEMPLATE = Template(
-    """You are playing White in a chess game against a deterministic Black bot.
+  """You are playing White in a chess game against a deterministic Black bot.
 
 Use the `play_move` tool for every move. Pass exactly one UCI move listed in the
 latest `legal_moves` field, then inspect the returned board before choosing the
@@ -16,7 +16,7 @@ active, make a tool call instead of merely describing a move in text."""
 """System prompt for the chess-playing agent."""
 
 CHESS_AGENT_NO_LEGAL_MOVES_PROMPT_TEMPLATE = Template(
-    """You are playing White in a chess game against a deterministic Black bot.
+  """You are playing White in a chess game against a deterministic Black bot.
 
 Use the `play_move` tool for every move. Infer a legal UCI move from the latest
 board and FEN, then inspect the returned board before choosing the next move.

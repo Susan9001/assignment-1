@@ -7,22 +7,22 @@ executor (``code_agent.py``). Part 2 adds context compaction to that loop. Part
 """
 
 from assignment.agent.base import (
-    MAX_OBSERVATION_CHARS,
-    Agent,
-    StepLimitError,
-    format_tool_output,
-    rough_message_tokens,
+  MAX_OBSERVATION_CHARS,
+  Agent,
+  StepLimitError,
+  format_tool_output,
+  rough_message_tokens,
 )
 from assignment.agent.chess_agent import ChessAgent, format_chess_state
 from assignment.agent.code_agent import CodeAgent
 
 __all__ = [
-    "MAX_OBSERVATION_CHARS",
-    "Agent",
-    "ChessAgent",
-    "CodeAgent",
-    "StepLimitError",
-    "format_chess_state",
-    "format_tool_output",
-    "rough_message_tokens",
+  "MAX_OBSERVATION_CHARS",
+  "Agent",
+  "ChessAgent",
+  "CodeAgent",
+  "StepLimitError",
+  "format_chess_state",
+  "format_tool_output",
+  "rough_message_tokens",
 ]

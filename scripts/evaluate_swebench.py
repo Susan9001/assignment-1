@@ -21,30 +21,30 @@ from assignment.eval.instances import available, load as load_instance
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument("instance_id", choices=available(), help="A vendored SWE-bench instance")
-    parser.add_argument("--patch", type=Path, help="Unified diff to apply before testing")
-    parser.add_argument(
-        "--timeout", type=float, default=1800, help="Seconds allowed for the test command"
-    )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Log each evaluation step")
-    args = parser.parse_args()
+  parser = argparse.ArgumentParser(
+    description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+  )
+  parser.add_argument("instance_id", choices=available(), help="A vendored SWE-bench instance")
+  parser.add_argument("--patch", type=Path, help="Unified diff to apply before testing")
+  parser.add_argument(
+    "--timeout", type=float, default=1800, help="Seconds allowed for the test command"
+  )
+  parser.add_argument("-v", "--verbose", action="store_true", help="Log each evaluation step")
+  args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s"
-    )
+  logging.basicConfig(
+    level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s"
+  )
 
-    instance = load_instance(args.instance_id)
-    patch = args.patch.read_text() if args.patch else None
+  instance = load_instance(args.instance_id)
+  patch = args.patch.read_text() if args.patch else None
 
-    print(patch)
+  print(patch)
 
-    report = evaluate(instance, patch=patch, timeout=args.timeout)
-    print(report.summary())
-    return 0 if report.resolved else 1
+  report = evaluate(instance, patch=patch, timeout=args.timeout)
+  print(report.summary())
+  return 0 if report.resolved else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+  sys.exit(main())
