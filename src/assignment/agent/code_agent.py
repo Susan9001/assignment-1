@@ -48,6 +48,24 @@ class CodeAgent(Agent):
 
     # TODO(1.1.b): Construct the system prompt and task_prompt. These
     # should be usable by the `Agent.build_prompt` method.
+    system_information = json.dumps(
+      {
+        "machine": environment.machine,
+        "release": environment.release,
+        "system": environment.system,
+        "version": environment.version,
+      },
+      indent=2,
+    )
+    self.system_prompt = (
+      "You are a coding agent working on a software task in a repository. "
+      "Inspect the relevant code and behavior before making changes. "
+      "Fix the underlying issue with focused changes that follow the "
+      "repository's conventions. Run relevant checks when possible, "
+      "and report what you changed and what you verified.\n\n"
+      f"<system_information>\n{system_information}\n</system_information>"
+    )
+    self.task_prompt = f"Complete the following task:\n\n{task}"
     # TODO(1.4): If any skills are available to the agent, make their
     # descriptions/metadata available to the agent in the prompt.
 
