@@ -79,6 +79,7 @@ class Agent:
     compaction_keep_recent_steps: int = DEFAULT_COMPACTION_KEEP_RECENT_STEPS,
     compaction_max_tokens: int = DEFAULT_COMPACTION_MAX_TOKENS,
   ):
+    # The environment owns the task sandbox; the model is the API model name.
     self.env = environment
     self.model = model or os.environ.get("OPENAI_MODEL")
     if not self.model:
@@ -103,6 +104,7 @@ class Agent:
       max_retries=max_retries,
     )
 
+    # Trajectory destination, model-call budget, and sandbox cleanup policy.
     self.logs_save_path = logs_save_path
     self.step_limit = step_limit
     self.auto_stop_environment = auto_stop_environment
@@ -135,13 +137,19 @@ class Agent:
     self.system_prompt: str = ""
     self.task_prompt: str = ""
 
+    # Audit trail of exact API inputs and raw responses, separate from the
+    # conversation history used to build the next prompt.
     self.api_prompts: list[list[dict[str, Any]]] = []
     self.api_responses: list[dict[str, Any]] = []
+    # Records when compaction ran and how it changed the active context.
     self.compaction_events: list[dict[str, Any]] = []
+    # Function-tool schemas sent with each model action request.
     self.tools: list[dict[str, Any]] = []
+    # Domain-specific completion state and number of completed model requests.
     self.finished = False
     self.steps_taken = 0
 
+    # Optional skill catalog; each entry has metadata and full instructions.
     self.skills_path = Path(skills_path) if skills_path is not None else None
     self.skills: dict[str, dict[str, str]] = (
       self.load_skills(self.skills_path) if self.skills_path is not None else {}
@@ -150,7 +158,7 @@ class Agent:
     if self.skills:
       self.tools.append(INVOKE_SKILL_TOOL)
 
-    # Conversation messages produced after the opening system and task prompts.
+    # Assistant actions and linked tool observations replayed in future prompts.
     self.history: list[dict[str, Any]] = []
 
   def load_skills(self, skills_path: Path) -> dict[str, dict[str, str]]:
@@ -318,20 +326,24 @@ class Agent:
     """Run ReAct steps, always saving the trajectory and stopping Modal."""
 
     try:
-      # TODO(1.2) Run the ReAct loop. Orchestrate the sequence of
-      # prompting the language model to produce reasoning and actions,
-      # extracting the tool calls produced by the model, and executing
-      # the tool calls to obtain the agent's observation for the next
-      # step. Ensure you identify when the agent has completed the task
-      # by setting `Agent.finished`. If the agent exceeds the
-      # `step_limit`, raise `StepLimitError`.
-
       # TODO(2.2) Call `maybe_compact_context()` before each new action
       # request in your shared loop. It already estimates active tokens
       # and handles the threshold, and tracks compaction events for
       # logging.
 
-      raise NotImplementedError
+      while not self.finished:
+        if self.steps_taken >= self.step_limit:
+          raise StepLimitError(
+            f"Agent reached the step limit of {self.step_limit} without finishing."
+          )
+
+        message = self.query_language_model()
+        self.history.append(message)
+
+        tool_calls = message.get("tool_calls") or []
+        if tool_calls:
+          observations = self.execute_tool_calls(tool_calls)
+          self.history.extend(observations)
     finally:
       # This block is provided infrastructure. Do not modify it: a
       # trajectory is required even when a run fails.
