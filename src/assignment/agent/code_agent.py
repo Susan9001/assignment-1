@@ -66,14 +66,24 @@ class CodeAgent(Agent):
       f"<system_information>\n{system_information}\n</system_information>"
     )
     self.task_prompt = f"Complete the following task:\n\n{task}"
-    # TODO(1.4): If any skills are available to the agent, make their
+    # If any skills are available to the agent, make their
     # descriptions/metadata available to the agent in the prompt.
+    if self.skills:
+      catalog = "\n\n".join(skill["metadata"] for skill in self.skills.values())
+      self.system_prompt += (
+        f"\n\n<available_skills>\n{catalog}\n</available_skills>\n"
+        "Call invoke_skill with a skill name to read its full instructions "
+        "before using it."
+      )
 
   def execute_tool_calls(
     self, tool_calls: list[dict[str, Any]]
   ) -> list[dict[str, str]]:
-    """Execute ``execute`` and ``send_message`` calls in the code sandbox."""
+    """Dispatch coding tools and return one observation per call."""
 
+    handlers = {"execute": self._execute, "send_message": self._send_message}
+    if self.skills:
+      handlers["invoke_skill"] = self._invoke_skill
     observations: list[dict[str, str]] = []
     for call in tool_calls:
       call_id = call.get("id", "") if isinstance(call, dict) else ""
@@ -85,7 +95,8 @@ class CodeAgent(Agent):
         content = "Error: malformed tool call; missing function."
       else:
         name = function.get("name")
-        if not isinstance(name, str) or name not in {"execute", "send_message"}:
+        handler = handlers.get(name) if isinstance(name, str) else None
+        if handler is None:
           content = f"Error: unknown tool {name!r}."
         else:
           try:
@@ -95,70 +106,85 @@ class CodeAgent(Agent):
           else:
             if not isinstance(arguments, dict):
               content = f"Error: {name} arguments must be a JSON object."
-            elif name == "execute":
-              allowed = {"command", "shell", "cwd", "timeout", "env"}
-              unexpected = set(arguments) - allowed
-              command = arguments.get("command")
-              if unexpected:
-                content = f"Error: unexpected execute argument(s): {sorted(unexpected)}."
-              elif not (
-                isinstance(command, str)
-                or (
-                  isinstance(command, list)
-                  and command
-                  and all(isinstance(item, str) for item in command)
-                )
-              ):
-                content = "Error: execute requires a string or string-list command."
-              elif (
-                "shell" in arguments
-                and arguments["shell"] is not None
-                and not isinstance(arguments["shell"], bool)
-              ):
-                content = "Error: shell must be a boolean or null."
-              elif (
-                "cwd" in arguments
-                and arguments["cwd"] is not None
-                and not isinstance(arguments["cwd"], str)
-              ):
-                content = "Error: cwd must be a string or null."
-              elif "timeout" in arguments and arguments["timeout"] is not None and (
-                isinstance(arguments["timeout"], bool)
-                or not isinstance(arguments["timeout"], (int, float))
-              ):
-                content = "Error: timeout must be a number or null."
-              elif "env" in arguments and arguments["env"] is not None and not (
-                isinstance(arguments["env"], dict)
-                and all(
-                  isinstance(key, str) and isinstance(value, str)
-                  for key, value in arguments["env"].items()
-                )
-              ):
-                content = "Error: env must map strings to strings or be null."
-              elif isinstance(command, list) and arguments.get("shell", True) is not False:
-                content = "Error: an argv-list command requires shell=false."
-              elif isinstance(command, str) and arguments.get("shell") is False:
-                content = "Error: shell=false requires an argv-list command."
-              else:
-                options = {
-                  key: arguments[key]
-                  for key in ("shell", "cwd", "timeout", "env")
-                  if key in arguments
-                }
-                content = format_tool_output(self.env.execute(command, **options))
             else:
-              summary = arguments.get("summary")
-              if (
-                set(arguments) != {"summary"}
-                or not isinstance(summary, str)
-              ):
-                content = "Error: send_message requires a summary string."
-              else:
-                print(summary, flush=True)
-                self.finished = True
-                content = "Message sent to the user."
+              content = handler(arguments)
 
       observations.append(
         {"role": "tool", "tool_call_id": call_id, "content": content}
       )
     return observations
+
+  def _execute(self, arguments: dict[str, Any]) -> str:
+    """Run a validated command in the task environment."""
+
+    allowed = {"command", "shell", "cwd", "timeout", "env"}
+    unexpected = set(arguments) - allowed
+    command = arguments.get("command")
+    if unexpected:
+      return f"Error: unexpected execute argument(s): {sorted(unexpected)}."
+    if not (
+      isinstance(command, str)
+      or (
+        isinstance(command, list)
+        and command
+        and all(isinstance(item, str) for item in command)
+      )
+    ):
+      return "Error: execute requires a string or string-list command."
+    if (
+      "shell" in arguments
+      and arguments["shell"] is not None
+      and not isinstance(arguments["shell"], bool)
+    ):
+      return "Error: shell must be a boolean or null."
+    if (
+      "cwd" in arguments
+      and arguments["cwd"] is not None
+      and not isinstance(arguments["cwd"], str)
+    ):
+      return "Error: cwd must be a string or null."
+    if "timeout" in arguments and arguments["timeout"] is not None and (
+      isinstance(arguments["timeout"], bool)
+      or not isinstance(arguments["timeout"], (int, float))
+    ):
+      return "Error: timeout must be a number or null."
+    if "env" in arguments and arguments["env"] is not None and not (
+      isinstance(arguments["env"], dict)
+      and all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in arguments["env"].items()
+      )
+    ):
+      return "Error: env must map strings to strings or be null."
+    if isinstance(command, list) and arguments.get("shell", True) is not False:
+      return "Error: an argv-list command requires shell=false."
+    if isinstance(command, str) and arguments.get("shell") is False:
+      return "Error: shell=false requires an argv-list command."
+
+    options = {
+      key: arguments[key]
+      for key in ("shell", "cwd", "timeout", "env")
+      if key in arguments
+    }
+    return format_tool_output(self.env.execute(command, **options))
+
+  def _send_message(self, arguments: dict[str, Any]) -> str:
+    """Report completion and stop the agent."""
+
+    summary = arguments.get("summary")
+    if set(arguments) != {"summary"} or not isinstance(summary, str):
+      return "Error: send_message requires a summary string."
+    print(summary, flush=True)
+    self.finished = True
+    return "Message sent to the user."
+
+  def _invoke_skill(self, arguments: dict[str, Any]) -> str:
+    """Reveal the complete instructions for one loaded skill."""
+
+    skill_name = arguments.get("name")
+    if set(arguments) != {"name"} or not isinstance(skill_name, str):
+      return "Error: invoke_skill requires a name string."
+    skill = self.skills.get(skill_name)
+    if skill is None:
+      return f"Error: unknown skill {skill_name!r}."
+    return skill["content"]
