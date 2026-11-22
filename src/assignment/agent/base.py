@@ -378,11 +378,6 @@ class Agent:
     """Run ReAct steps, always saving the trajectory and stopping Modal."""
 
     try:
-      # TODO(2.2) Call `maybe_compact_context()` before each new action
-      # request in your shared loop. It already estimates active tokens
-      # and handles the threshold, and tracks compaction events for
-      # logging.
-
       # 1.2: Run model actions until a tool signals completion or the limit is hit.
       while not self.finished:
         if self.steps_taken >= self.step_limit:
@@ -390,6 +385,8 @@ class Agent:
             f"Agent reached the step limit of {self.step_limit} without finishing."
           )
 
+        # 2.2: Compact before constructing the next action request.
+        self.maybe_compact_context()
         message = self.query_language_model()
         self.history.append(message)
 
