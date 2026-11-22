@@ -28,10 +28,16 @@ DEFAULT_COMPACTION_KEEP_RECENT_STEPS = 1
 DEFAULT_COMPACTION_MAX_TOKENS = 1_200
 MAX_OBSERVATION_CHARS = 10_000
 
-# TODO(Part 2): Write instructions that make the model produce concise working
-# memory for a software agent. The prompt should preserve concrete progress,
-# failures, test results, constraints, and next steps without copying raw output.
-COMPACTION_SYSTEM_PROMPT = ""
+# 2.1: Tell the summarizer which facts must survive compaction.
+COMPACTION_SYSTEM_PROMPT = (
+  "Compress the supplied old history into concise, factual working memory "
+  "for a software agent. Preserve the objective, constraints, relevant files "
+  "and paths, commands and their concrete results, edits, failed approaches, "
+  "test outcomes, blockers, and the next action. Carry forward useful facts "
+  "from any earlier summary, updating them when later evidence supersedes "
+  "them. Distinguish completed work from plans. Do not invent details or "
+  "copy long raw tool outputs. Return only the summary."
+)
 
 
 class StepLimitError(Exception):
@@ -150,7 +156,7 @@ class Agent:
     self.finished = False
     self.steps_taken = 0
 
-    # Optional skill catalog; each entry has metadata and full instructions.
+    # 1.4: Skill catalog entries hold prompt metadata and full instructions.
     self.skills_path = Path(skills_path) if skills_path is not None else None
     self.skills: dict[str, dict[str, str]] = (
       self.load_skills(self.skills_path) if self.skills_path is not None else {}
@@ -159,9 +165,10 @@ class Agent:
     if self.skills:
       self.tools.append(INVOKE_SKILL_TOOL)
 
-    # Assistant actions and linked tool observations replayed in future prompts.
+    # 1.1.a: Replay assistant actions and linked tool observations in prompts.
     self.history: list[dict[str, Any]] = []
 
+  # 1.4: Discover and validate skill files before advertising them.
   def load_skills(self, skills_path: Path) -> dict[str, dict[str, str]]:
     """Load the skill folders exposed to this agent."""
 
@@ -253,6 +260,7 @@ class Agent:
 
     return response.choices[0].message.model_dump(exclude_none=True)
 
+  # 1.1.a: Keep prompt construction read-only and repeatable.
   def build_prompt(self) -> list[dict[str, Any]]:
     return [
       {"role": "system", "content": self.system_prompt},
@@ -283,22 +291,25 @@ class Agent:
 
     return self.compact_threshold_tokens is not None
 
+  # 2.1: Summarize an old prefix while retaining complete recent actions.
   def compact_context(self):
     """Replace parts of prompt with model-generated working memory. Changes the
         content that `build_prompt` emits."""
 
-    # TODO(2.1): Prompt the model to compact the context. The system
-    # prompt should ask for concise factual working memory and preserve
-    # the objective, constraints, files, commands, edits, concrete
-    # results, failed approaches, tests, blockers, and next action.
-    # Summarize only an old prefix; retain the original system/task
-    # messages verbatim and at least the latest complete assistant action
-    # with all linked tool observations. The resulting summary should change
-    # what `build_prompt` emits, and reduce the length of the prompt.
+    assistant_positions = [
+      i for i, message in enumerate(self.history)
+      if message.get("role") == "assistant"
+    ]
+    cutoff = assistant_positions[-self.compaction_keep_recent_steps]
+    old_history = self.history[:cutoff]
+    recent_history = self.history[cutoff:]
 
-    raise NotImplementedError
-
-    compaction_prompt = []
+    compaction_prompt = [
+      {"role": "system", "content": COMPACTION_SYSTEM_PROMPT},
+      {"role": "system", "content": self.system_prompt},
+      {"role": "user", "content": self.task_prompt},
+      *deepcopy(old_history),
+    ]
 
     ### Do not modify this section ###
     compaction_response = self.client.chat.completions.create(
@@ -311,6 +322,19 @@ class Agent:
 
     # Use `compaction_response` to update what `build_prompt` emits, but
     # DO NOT modify the object itself. Let the method return it unchanged.
+    summary = compaction_response.choices[0].message.content
+    if not isinstance(summary, str) or not summary.strip():
+      raise ValueError("Compaction returned an empty summary")
+
+    compacted_history = [
+      {"role": "user", "content": f"Working memory from earlier steps:\n{summary.strip()}"},
+      *recent_history,
+    ]
+    prompt_before = self.build_prompt()
+    prompt_after = [*prompt_before[:2], *compacted_history]
+    if rough_message_tokens(prompt_after) >= rough_message_tokens(prompt_before):
+      raise ValueError("Compaction did not reduce the active prompt")
+    self.history = compacted_history
 
     ### Do not modify this section ###
     return compaction_prompt, compaction_response.model_dump(mode="json")
@@ -359,6 +383,7 @@ class Agent:
       # and handles the threshold, and tracks compaction events for
       # logging.
 
+      # 1.2: Run model actions until a tool signals completion or the limit is hit.
       while not self.finished:
         if self.steps_taken >= self.step_limit:
           raise StepLimitError(

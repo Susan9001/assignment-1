@@ -44,6 +44,7 @@ class CodeAgent(Agent):
     self.task = task
     self.submitted_patch = ""
 
+    # 1.3: Advertise the coding tools to the model.
     self.tools.extend([EXECUTE_TOOL, SEND_MESSAGE_TOOL])
 
     # 1.1.b: Construct the system prompt and task_prompt. These
@@ -66,8 +67,7 @@ class CodeAgent(Agent):
       f"<system_information>\n{system_information}\n</system_information>"
     )
     self.task_prompt = f"Complete the following task:\n\n{task}"
-    # If any skills are available to the agent, make their
-    # descriptions/metadata available to the agent in the prompt.
+    # 1.4: Advertise skill metadata without revealing full instructions.
     if self.skills:
       catalog = "\n\n".join(skill["metadata"] for skill in self.skills.values())
       self.system_prompt += (
@@ -76,6 +76,7 @@ class CodeAgent(Agent):
         "before using it."
       )
 
+  # 1.3: Dispatch each tool call and return a linked observation.
   def execute_tool_calls(
     self, tool_calls: list[dict[str, Any]]
   ) -> list[dict[str, str]]:
@@ -178,6 +179,7 @@ class CodeAgent(Agent):
     self.finished = True
     return "Message sent to the user."
 
+  # 1.4: Reveal one skill's instructions only when invoked.
   def _invoke_skill(self, arguments: dict[str, Any]) -> str:
     """Reveal the complete instructions for one loaded skill."""
 
